@@ -60,22 +60,35 @@ flowchart TD
     firstNode[First Node] --> secondNode[Second Node]
     secondNode --> thirdNode[Third Node]
 ```
-## Utility Functions
+## Data Models
 
-> Notes for AI:
-> 1. Understand the utility function definition thoroughly by reviewing the doc.
-> 2. Include only the necessary utility functions, based on nodes in the flow.
+```python
+class Memo:
+    title: str          # Memo title, used as filename
+    category: str       # Category path
+    body: str          # Memo content in markdown
+    created_at: float  # Unix timestamp
+    updated_at: float  # Unix timestamp
+
+class Feedback:
+    memo_path: str
+    comment: str
+```
+
+## Utility Functions
 
 1. **Memo Store** (`utils/memo_store.py`)
    - *Functions*:
-     - `create_memo(title: str, category: str, content: str) -> bool`
+     - `exists_memo(title: str, category: str) -> bool`
+       - Checks if memo exists in the given category
+     - `create_memo(memo: Memo) -> bool`
        - Creates a new memo file in the specified category
        - Returns False if memo already exists
        - Validates title format and category path
-     - `update_memo(path: str, content: str) -> bool`
+     - `update_memo(path: str, memo: Memo) -> bool`
        - Updates content of existing memo
        - Returns False if memo doesn't exist
-       - Preserves metadata and title
+       - Updates timestamps
      - `delete_memo(path: str) -> bool`
        - Removes memo file from storage
        - Returns False if memo doesn't exist
@@ -84,16 +97,18 @@ flowchart TD
        - Relocates memo to different category
        - Returns False if memo doesn't exist or category invalid
        - Updates all related references
-     - `read_memo(path: str) -> Optional[str]`
+     - `read_memo(path: str) -> Optional[Memo]`
        - Retrieves memo content
        - Returns None if memo doesn't exist
-       - Includes metadata and content
+     - `read_category`(path: str) -> List[Memo]
+       - Retrieves all memos in the given category
+       - Returns False if category doesn't exist
    - *Purpose*: Manage memo CRUD operations and organization
    - *Used by*: All nodes for memo management
 
 2. **Vector Database** (`utils/vector_db.py`)
    - *Functions*:
-     - `add_memo(path: str, content: str) -> bool`
+     - `add_memo(path: str, memo: Memo) -> bool`
        - Adds memo to Chroma collection
        - Automatically generates embedding using Chroma's model
        - Returns False if operation fails
@@ -102,45 +117,53 @@ flowchart TD
        - Returns False if memo doesn't exist
      - `search_similar(query: str, limit: int) -> List[str]`
        - Finds similar memos using semantic search
-       - Returns list of memo paths sorted by relevance
-     - `rebuild_index() -> bool`
+       - Returns list of paths sorted by relevance
+     - `search_keyword(query: str, limit: int) -> List[str]`
+       - Finds memos containing the keyword in the path
+       - Returns list of paths sorted by relevance
+     - `rebuild_index(List(Memo)) -> bool`
        - Rebuilds entire Chroma collection
        - Used when changing embedding models or after bulk changes
    - *Purpose*: Manage vector similarity search using Chroma
    - *Used by*: Retrieval nodes for similarity search
 
-3. **Text Processing** (`utils/text_processor.py`)
+3. **LLM Interface** (`utils/llm_client.py`)
    - *Functions*:
-     - `extract_memos(text: str) -> List[Dict]`
-     - `parse_memo_header(header: str) -> Tuple[str, str]`
-   - *Purpose*: Process raw text into structured memos
-   - *Used by*: First node for memo extraction
+     - `call_llm(prompt: str, system_context: Optional[str] = None) -> str`
+       - Makes a call to the configured LLM
+       - Handles rate limiting and retries
+       - Returns generated text
+   - *Purpose*: Standardized LLM interaction interface
+   - *Used by*: Memo generation and feedback processing
 
-4. **Diff Generation** (`utils/diff_generator.py`)
-   - *Input*: original_text (str), revised_text (str)
-   - *Output*: diff (str)
-   - *Purpose*: Generate readable diffs between versions
-   - *Used by*: Review nodes for change visualization
-
-5. **Sleep Session** (`utils/sleep_session.py`)
+4. **Memo Generation** (`utils/memo_gen.py`)
    - *Functions*:
-     - `analyze_memos() -> List[Dict]`
-     - `apply_changes(approved_changes: List[Dict])`
-   - *Purpose*: Handle cleanup and deduplication
-   - *Used by*: Maintenance nodes for sleep sessions
+     - `generate_memos(text: str, instructions: List[Memo], existing_memos: List[Memo]) -> List[Memo]`
+       - Generates new memos from input text
+       - Uses instructions to guide generation
+       - Considers existing memos for updates
+       - Returns new/updated memos
+     - `process_feedback(instructions: List[Memo], feedback: List[Feedback]) -> List[Memo]`
+       - Takes rejected memos and their feedback
+       - Returns new/updated instruction memos
+   - *Purpose*: Generate and refine memos using LLM
+   - *Used by*: Memo creation and feedback flows
 
-6. **LLM Interface** (`utils/llm_client.py`)
-   - *Input*: prompt (str), system_context (Optional[str])
-   - *Output*: response (str)
-   - *Purpose*: Handle all LLM interactions
-   - *Used by*: Multiple nodes for text generation
-
-7. **Category Manager** (`utils/category_manager.py`)
+5. **Review Queue** (`utils/review_queue.py`)
    - *Functions*:
-     - `get_categories() -> List[str]`
-     - `filter_by_category(category: str) -> List[str]`
-   - *Purpose*: Manage memo categorization
-   - *Used by*: Retrieval nodes for category filtering
+     - `add_to_queue(memos: List[Memo]) -> bool`
+       - Adds memos to review queue
+       - Maintains order and metadata
+     - `get_next() -> Optional[Memo]`
+       - Returns next memo for review
+       - Returns None if queue empty
+     - `remove_from_queue(memo: Memo)`
+       - Removes memo from review queue
+     - `clear_queue() -> bool`
+       - Clears the review queue
+       - Used when restarting review process
+   - *Purpose*: Manage memo review workflow
+   - *Used by*: User interaction flows
 
 ### Implementation Notes:
 - All utilities implement proper error handling and logging
